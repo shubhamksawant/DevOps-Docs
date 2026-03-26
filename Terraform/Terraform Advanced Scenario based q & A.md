@@ -141,14 +141,15 @@ resource "aws_subnet" "this" {
 ```
 
 - Optionally use **dynamic blocks** for nested arguments that vary per environment.
-It makes total sense why you'd want to steer clear of count here. While count is the "quick and dirty" way to scale resources, it treats your subnets like an array. If you remove the first item in that array, Terraform panics and tries to shift or recreate everything that follows. Using for_each with a map makes your infrastructure "key-addressable," which is much safer.
+
+It makes total sense why you'd want to steer clear of `count` here. While `count` is the "quick and dirty" way to scale resources, it treats your subnets like an array. If you remove the first item in that array, Terraform panics and tries to shift or recreate everything that follows. Using `for_each` with a map makes your infrastructure "key-addressable," which is much safer.
 
 Here is how you can structure the code to handle your dev, stage, and prod requirements dynamically.
 
-1. The Variable Structure
-Instead of a simple list, we use a map where the keys are your environment names. This allows the module to look up exactly what it needs based on a single input (like var.env).
+ The Variable Structure
+Instead of a simple list, we use a map where the keys are your environment names. This allows the module to look up exactly what it needs based on a single input (like `var.env`).
 
-Terraform
+```hcl
 variable "env" {
   description = "The environment name (dev, stage, or prod)"
   type        = string
@@ -174,10 +175,12 @@ variable "env_config" {
     }
   }
 }
-2. Resource Logic with for_each
-This block will look at the env_config map, find the current environment, and loop through the subnets map defined for it.
+```
 
-Terraform
+Resource Logic with `for_each`
+This block will look at the `env_config` map, find the current environment, and loop through the `subnets` map defined for it.
+
+```hcl
 resource "aws_vpc" "main" {
   cidr_block = var.env_config[var.env].cidr_block
 }
@@ -194,10 +197,12 @@ resource "aws_subnet" "this" {
     Name = each.key
   }
 }
-3. Using dynamic Blocks
-Dynamic blocks are useful when a resource has nested configuration blocks (like ingress rules in a Security Group) that need to change based on the environment.
+```
 
-Terraform
+ Using `dynamic` Blocks
+Dynamic blocks are useful when a resource has **nested configuration blocks** (like `ingress` rules in a Security Group) that need to change based on the environment.
+
+```hcl
 resource "aws_security_group" "allow_tls" {
   name   = "${var.env}-sg"
   vpc_id = aws_vpc.main.id
@@ -213,20 +218,17 @@ resource "aws_security_group" "allow_tls" {
     }
   }
 }
-Why count is risky here
-Imagine you used count = 6 for your Prod subnets. Terraform tracks them by index:
+```
+ Why `count` is risky here
+Imagine you used `count = 6` for your Prod subnets. Terraform tracks them by index:
+* `aws_subnet.this[0]`
+* `aws_subnet.this[1]`
+* ...and so on.
 
-aws_subnet.this[0]
+**The Issue:** If you decide to delete the **first** subnet (`index 0`), Terraform doesn't just delete one. It sees that the list has shifted. It will try to rename `index 1` to `index 0`, `index 2` to `index 1`, etc. In many cases, this forces Terraform to **destroy and recreate every single subnet** in the list just because the order changed.
 
-aws_subnet.this[1]
+**The `for_each` Advantage:** Terraform tracks resources by the **key** (e.g., `aws_subnet.this["p-db-1"]`). If you delete one subnet, Terraform sees that specific key is gone, deletes only that one, and leaves the others completely untouched.
 
-...and so on.
-
-The Issue: If you decide to delete the first subnet (index 0), Terraform doesn't just delete one. It sees that the list has shifted. It will try to rename index 1 to index 0, index 2 to index 1, etc. In many cases, this forces Terraform to destroy and recreate every single subnet in the list just because the order changed.
-
-The for_each Advantage: Terraform tracks resources by the key (e.g., aws_subnet.this["p-db-1"]). If you delete one subnet, Terraform sees that specific key is gone, deletes only that one, and leaves the others completely untouched.
-
-Would you like me to show you how to dynamically distribute these subnets across multiple Availability Zones using the cidrsubnets() function?
 ---
 
 ### 7. You want to deploy the same infra across 10 AWS accounts from one code base. How do you design it?
